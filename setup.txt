@@ -1,0 +1,144 @@
+
+ 
+
+
+SITL: 
+
+https://ardupilot.org/dev/docs/setting-up-sitl-on-linux.html 
+Install: https://ardupilot.org/dev/docs/building-setup-linux.html#building-setup-linux 
+
+FlightGear 3D View
+
+sudo apt-get install flightgear
+
+Cd ardupilot/Tools/autotest/
+./fq_quad_view.sh
+
+Usage: sim_vehicle.py -v ArduCopter -L KSFO --enable-fgview  —out:udp:192.168.68.100:14550
+
+Add custom location: 
+ardupilot/Tools/autotest/locations.txt
+
+Disable the debug text: 
+Arducopter-set.xml remove -> <nasal> -> debug text
+
+Disable the drone rendering: 
+Edit fg_quad_view.sh
+--prop::/sim/rendering/draw-mask/aircraft=false
+
+Streaming:
+
+OBS: 
+sudo add-apt-repository pap:obsproject/obs-sudio
+Sudo apt update
+Sudo apt install ffmpeg obs-studio
+
+MediaMTX (https://github.com/bluenviron/mediamtx?tab=readme-ov-file#arch-linux-package)
+Sudo snap install mediamtx
+
+OBS settings: 
+Service: Custom
+Service: rmtp: //localhost/1935:live
+Stream key: flighgear
+
+Video: Output(scaled) resolution: 320x256
+
+Usage: python basic_pipelines/depth4d_4x4_mavlink_2x2_a.py --input rtsp://192.168.68.109:8554/live/flightgear --arch hailo8 --use-frame 
+
+Use the following in the .py copter script
+# ---------------- MAVLink Setup ----------------
+#master = mavutil.mavlink_connection('udp:0.0.0.0:14550')
+#master.wait_heartbeat()
+#print("Connected to system")
+
+
+
+Using camera
+python basic_pipelines/depth4d_4x4_mavlink_latest.py  --arch hailo8 --use-frame -i rpi
+
+Modify the camera feed to accept the scaled video feed for the model: 
+hailo-rpi5-examples/venv_hailo_rpi5_examples/lib/python3.11/site-packages/hailo_apps_infra/depth_pipeline.py
+And just below: def get_pipeline_string(self): source_pipeline = SOURCE_PIPELINE(self.video_source, self.video_width, self.video_height)
+Add
+	#Skips videocrop, forcing the 16:9 image to stretch to 5:4
+        source_pipeline = SOURCE_PIPELINE(self.video_source, self.video_width, self.video_height) 
+        source_pipeline += ' ! videoscale ! video/x-raw, width=320, height=256'  # Cropping 190 pixels from the left and 190 from the right
+       
+
+Remove the horizontal flip: -> removing the videoflip element from this section of code in gstreamer_helper_pipelines.py:
+
+elif source_type == 'rpi':
+    source_element = (
+        f'appsrc name=app_source is-live=true leaky-type=downstream max-buffers=3 ! '
+        'videoflip name=videoflip video-direction=horiz ! '
+        f'video/x-raw, format={video_format}, width={video_width}, height={video_height} ! '
+    )
+
+
+
+HAILO update to remove the preview window:
+depth_pipeline.py
+
+After:  super().__init__(parser, user_data)
+self.video_sink = "fakesink"
+self.show_fps = False
+
+
+HAILO update -> https://community.hailo.ai/t/using-rtsp-stream-in-raspberry-pi5/1219/4
+
+Usage --input rtsp://ip: port 
+
+
+depth_pipeline.py -> change the resolution of the input 
+
+
+Locate function “get_source_type” and change to following
+
+def get_source_type(input_source):
+    # This function will return the source type based on the input source
+    # return values can be "file", "mipi" or "usb"
+    if input_source.startswith("/dev/video"):
+        return 'usb'
+    else:
+        if input_source.startswith("rpi"):
+            return 'rpi'
+        elif input_source.startswith("rtsp"):
+            return 'rtsp'
+        else:
+            return 'file'
+
+elif self.source_type == "usb":
+            source_element = (
+                f"v4l2src device={self.video_source} name=src_0 ! "
+                "video/x-raw, width=640, height=480, framerate=30/1 ! "
+            )
+        elif self.source_type == "rtsp":
+            source_element = (
+                f"rtspsrc location={self.video_source} name=src_0  message-forward=true ! "
+                + "rtph264depay !"
+                + "queue name=hailo_preprocess_q_0 leaky=no max-size-buffers=5 max-size-bytes=0 max-size-time=0 ! "
+                + "decodebin ! queue leaky=downstream max-size-buffers=5 max-size-bytes=0 max-size-time=0 ! "
+
+                " video/x-raw, format=I420 ! "
+            )
+        else:
+
+
+
+
+Connect Raspberry Pi 5 to Speedybee
+1. Edit /boot/firmware/config.txt
+* On the Raspberry Pi 5 you have to edit /boot/firmware/config.txt and set these two params:
+
+enable_uart=1
+dtoverlay=uart0
+
+https://discuss.ardupilot.org/t/raspberry-pi-5-compatibility/118272/13
+
+
+https://www.youtube.com/watch?v=riWIg6Yx4KI
+mavproxy.py --master=/dev/serial0 --baudrate 921600 --aircraft MyDrone
+Motortest 1 0 20 1 
+
+
+
